@@ -1,0 +1,477 @@
+---
+title: "Finding a Dataset"
+author: "Benjamin Tudor Price | TUDORPR1"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+bibliography: refs.bib
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/research-institute-for-nature-and-forest.csl
+---
+
+## Experimenting with GEOmetadb
+
+This project will begin by finding an interesting Arabidopsis dataset.
+
+```{r, message=FALSE, warning=FALSE}
+if (!requireNamespace("BiocManager"))
+    install.packages("BiocManager", quietly=TRUE)
+
+if (!requireNamespace("GEOmetadb"))
+    BiocManager::install("GEOmetadb", quietly=TRUE)
+
+if (!requireNamespace("edgeR"))
+    install.packages("edgeR", quietly=TRUE)
+
+if (!requireNamespace("org.At.tair.db"))
+  BiocManager::install("org.At.tair.db", quietly=TRUE)
+
+if (!requireNamespace("AnnotationDbi"))
+    install.packages("AnnotationDbi", quietly=TRUE)
+
+library("GEOmetadb")
+library("knitr")
+
+# If we haven't already got GEO metadata, pull it.
+if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
+
+```
+
+Now, let's see what's going on in the the metaDB folder.
+
+```{r, message = FALSE}
+# Print basic info.
+file.info('GEOmetadb.sqlite')
+
+# Open a connection to the database folder.
+con <- dbConnect(SQLite(),'GEOmetadb.sqlite')
+
+geo_tables <- dbListTables(con)
+geo_tables
+
+dbListFields(con,'gse')
+results <- dbGetQuery(con,'select count(*) from gpl')
+# Num of available platforms.
+print(results[[1, 1]])
+
+# How many series do we have?
+results <- dbGetQuery(con,'select count(*) from gse')
+# Number of available series.
+print(results[[1, 1]])
+
+# View most recent additions to databse.
+results <- dbGetQuery(con,'select title, submission_date from gse order by submission_date desc')
+# Most Recent Series:")
+knitr::kable(head(results[1:3,]), format = "simple")
+
+# Complete select statement filtering for a data set that I'm interested in.
+sql <- paste(
+"select ",
+"  gse.title,",
+"  gse.summary,",
+"  gse.submission_date,",
+"  gse.overall_design,",
+"  gse.gse,",
+"  gse.pubmed_id",
+"from",
+"  gse join gse_gpl on gse_gpl.gse=gse.gse",
+"  join gpl on gse_gpl.gpl=gpl.gpl",
+"where",
+"  gpl.organism like '%bidop%' and",
+"  gse.summary like '%light%' and",
+"  gse.summary not like '%chromatin%' and",
+"  gse.summary not like '%H3K%' and",
+"  gse.title not like '%ChIP%' and",
+"  gse.overall_design not like '%ChIP%' and",
+"  gpl.technology like '%high-throughput seq%'",
+"order by gse.submission_date desc")
+
+results <- dbGetQuery(con, sql)
+
+# Taking a look at a few of the GEO entries matching the above specifications.
+kable(results[1:2,], format = "simple")
+
+```
+
+## Series Metadata
+
+After reading the paper, it turns out that GSE164122 has everything we need, including several interesting conditions with 3 replicates each [@pmm]. Here's some information about the package.
+
+```{r, message=FALSE}
+gse <- getGEO("GSE164122",GSEMatrix=FALSE)
+current_gse_info <-  Meta(gse)
+
+current_gpl <- names(GPLList(gse))[1]
+current_gpl_info <- Meta(getGEO(current_gpl))
+# print(current_gpl_info[c(-8, -9)])
+```
+
+### Series Overview
+
+**Title**: `r current_gse_info$title`  
+**Submission Date**: `r current_gse_info$submission_date`  
+**Accession Number**: `r current_gse_info$geo_accession`  
+**Summary:**:  
+    `r current_gse_info$summary`  
+**Design:**:  
+    `r current_gse_info$overall_design`  
+
+### Platform Overview
+
+**Title**: `r current_gpl_info$title`  
+**Accession Number**: `r current_gpl_info$geo_accession`  
+**Organism**: `r current_gpl_info$organism`  
+**Technology**: `r current_gpl_info$technology`  
+
+## Fetching, Interpreting, and Parsing Data.
+
+
+```{r}
+# Fetch series from GEO.
+sfiles = getGEOSuppFiles('GSE164122')
+
+# Parse into list.
+fnames = rownames(sfiles)
+raw_expression_data = read.delim(fnames[1],header=TRUE,
+ check.names = FALSE)
+
+# Extract columns with raw counts.
+col_names <- names(raw_expression_data)
+reads_cols <- grep('counts', col_names, ignore.case = TRUE)
+
+# Combine with identifiers into new dataframe.
+raw_counts <- data.frame(raw_expression_data[c(1, 2)])
+raw_counts <- cbind(raw_counts, data.frame(raw_expression_data[reads_cols]))
+
+# Remove redundant Counts tag.
+names(raw_counts) <- unlist(lapply(as.list(names(raw_counts)), FUN=function(x){return(unlist(strsplit(x, '\\.'))[1])}))
+
+# For later comparison to trimmed data.
+original_raw_counts <- raw_counts
+
+# Display small sample table.
+kable(raw_counts[1:10, 1:5])
+```
+
+So, we have a dataset with `r length(raw_counts[,1])` mRNAs with their expression quantified across `r (length(raw_counts[ 1,]) - 2) / 3` different conditions, with 3 replicates each. Now, let's make sense of the treatments.
+
+```{r}
+
+# Variables to help expand abbreviated column names.
+code_to_treatment <- c('3 Days Light', '3 Days Dark')
+names(code_to_treatment) <- c('X3dWL', 'X3dD')
+
+get_sample_info <- function(column_name){
+  # Expands an abbreviated column name into a length 4 character vector 
+  # containing containing the key attributes of the sample.
+  
+  sample_info <- unlist(strsplit(column_name, split = "\\_"))
+  light_condition <- code_to_treatment[[sample_info[1]]]
+  genotype <- sample_info[[2]]
+  replicate <- substr(sample_info[[3]], 1, 1)
+  group <- paste(c(sample_info[1], sample_info[[2]]), collapse = '_')
+  
+  return(c(light_condition, genotype, replicate, group))
+  }
+
+# Translate abbrivated column names to plain english in a dataframe.
+samples <- data.frame(lapply(colnames(raw_counts)[3:ncol(raw_counts)], get_sample_info))
+colnames(samples) <- colnames(raw_counts)[3:ncol(raw_counts)]
+rownames(samples) <- c("Treatment", "Genotype","Replicate", "Group")
+samples <- data.frame(t(samples))
+
+# Print plain english dataframe
+kable(samples, format = "simple")
+```
+
+### Duplicate Check
+
+Do we have any duplicates? Let's check using a method similar to that shown in lecture. There are roughly 27000 protein coding genes that encode roughly 35000 proteins in Arabidopsis [@Arabidopsis_genome]. We have roughly 34000 mRNA in our data set, which seems reasonable given that the tissue sample from which the RNA was obtained only included a few cell types at a single developmental stage, which we would not expect to contain every possible mRNA. We can also be confident that our reads are primarialy mRNA, as reverse transcription was performed with poly-T primers. Let's just check that there aren't too many RNAs with duplicate names.
+
+```{r}
+# Display table containing most frequently occurring mRNA names.
+gene_name_counts <- sort(table(raw_counts[, 2]), decreasing = TRUE)
+kable(head(sort(table(raw_counts[, 2]), decreasing = TRUE)), 'simple')
+
+```
+  
+It appears that there are several distinct locus identifiers associated with the same gene names. We can calculate that we have `r length(gene_name_counts)` distinct gene names. However, this isn't particularly useful as `r sum(is.na(raw_counts[, 2]))`  entries are "NA" in the data. These are likely mRNA with no formal gene names, or splice isoforms of some other genes.  
+
+## Filtering out Missing Data
+
+We also find that many of the count entries in the series are NA, and that these often occur for an entire column. We'll presume that the authour included mRNA for which there were no recorded reads. We'll **prune** all genes for which only NA reads are reported.
+
+```{r}
+# Find all NA rows.
+is_not_na_row <- logical(nrow(raw_counts))
+for (i in seq(1, nrow(raw_counts))){
+  if (all(is.na(raw_counts[i,3:ncol(raw_counts)]))){
+    is_not_na_row[i] = FALSE
+  } else {
+    is_not_na_row[i] = TRUE
+  }
+}
+
+# Subsample of all entries found to be NA.
+kable(head(raw_counts[, 1][!is_not_na_row]), col.names = c("NA Entries"))
+
+raw_counts <- raw_counts[is_not_na_row,]
+```
+We removed `r length(is_not_na_row) - sum(is_not_na_row)` genes from out dataset. Leaving `r length(raw_counts[,1])` genes in the data set.
+
+
+## Analysing Gene Counts
+
+Let's take a look at the read counts in each of our samples.
+
+```{r}
+count_matrix <- as.matrix(raw_counts[,3:ncol(raw_counts)])
+
+# Compute total number of reads.
+total_counts <- apply(count_matrix, 2, sum)
+
+# Visualize total counts for each sample.
+par(mar=c(5,8,5,5))
+barplot(as.numeric(total_counts), names.arg=names(total_counts), main="Total Counts for Each Sample",
+   xlab="Count Total", horiz=TRUE, las=2, cex.names = 0.7)
+
+```
+  
+  
+So we can see that the samples seem to have a relatively similar number of reads across all replicates and conditions. The mean count for a given mRNA across all samples and replicates is `r as.integer(mean(count_matrix))` and the standard deviation is `r as.integer(sd(count_matrix))` (both values are rounded). Let's follow the protocol shown in lecture by removing low abundance RNAs next.
+
+## Removing Low Abundance RNAs
+
+Here, we're following the edgeR protocol, and removing all RNAs without at least one read per million in at least n of the samples, where n is the size of the smallest group of replicates, which for us is 3.
+
+```{r}
+n <- 3
+
+# Convert to counts per million.
+cpms <- edgeR::cpm(raw_counts[, 3:ncol(raw_counts)])
+rownames(cpms) <- raw_counts[, 1]
+# Remove RNAs as described above.
+keep <- rowSums(cpms > 1) >= n
+raw_counts <- raw_counts[keep,]
+
+
+```
+
+In this step, we removed `r length(keep) - sum(keep)` genes from out dataset. Leaving `r length(raw_counts[,1])` genes in the data set.
+
+## Normalization
+
+We're going to try and normalize by distribution using the TMM method [@robinson2010scaling]. Let's first just try and visualize the distribution of the data in order to justify the assumptions necessary to employ this normalization technique. Namely,  
+
+ __1.__ DE and non-DE genes behave the same: Technical effects are the same for DE and non-DE genes.  
+ __2.__ Balanced expression: There is roughly symmetric differential expression across conditions.  
+ __3.__ Most genes are not differentially expressed.
+
+The first assumption seems reasonable given that we are performing poly-A amplification, allowing us to assume that the probability of reverse transcription (and thus inclusion in cDNA library and representation in data set) of a mRNA is largely proportional to the length of it's poly-A tail. I am going to make the hard assumption that poly-A lengths aren't differentially regulated in the different conditions.  
+We should be able to justify the second assumption by visualizing the distributions of the read counts across all of the conditions. The third assumption is reasonable, given that the majority of genes are required for basic cellular function. I've added a section that calculates the averages across all three replicates for each group, so that differences between the groups can be visualized more effectively
+
+```{r}
+# Take the average of all three replicates for each conditions
+num_replicates <- 3
+num_coditions <- (ncol(raw_counts) - 2) / num_replicates
+
+counts_averaged <- data.frame(raw_counts[, 1:2])
+for (condition_num in seq(1, num_coditions)){
+  
+  #Extract replicates and calculate average counts.
+  condition_start_ind <- 3 + num_replicates * (condition_num - 1)
+  # print(condition_start_ind)
+  replicates <- as.matrix(raw_counts[,condition_start_ind:(condition_start_ind + num_replicates - 1)])
+  mean_replicates <- apply(replicates, MARGIN = 1, FUN = mean)
+  
+  # Append average counts to average counts data frame.
+  sample_descriptors <- unlist(strsplit(names(raw_counts)[condition_start_ind], '\\_'))
+  # print(sample_descriptors) - for checking correct indexing.
+  condition_name <- c(paste(sample_descriptors[c(1, 2)], collapse = '_'))
+  counts_averaged <- cbind(counts_averaged, mean_replicates)
+  names(counts_averaged)[condition_num + 2] <- condition_name
+}
+```
+
+Now let's visualize the count densities.
+
+```{r}
+get_count_density <- function(data2plot, legend=TRUE, title = ''){
+  # Display histogram of count densities.
+  counts_density <- apply(data2plot, 2, density)
+  
+  # Calculate the limits across all the samples
+  xlim <- 0; ylim <- 0
+  for (i in 1:length(counts_density)) {
+  xlim <- range(c(xlim, counts_density[[i]]$x));
+  ylim <- range(c(ylim, counts_density[[i]]$y))
+  }
+  cols <- rainbow(length(counts_density))
+  ltys <- rep(1, length(counts_density))
+  
+  # Plot the first density plot to initialize the plot
+  plot(counts_density[[1]], xlim=xlim, ylim=ylim, type="n",
+  ylab="Smoothing density of log2-CPM", main = title, cex.lab = 0.85)
+  
+  
+  #plot each line
+  for (i in 1:length(counts_density)){
+  lines(counts_density[[i]], col=cols[i], lty=ltys[i])
+  }
+  #create legend
+  if (legend){
+    legend("topright", colnames(data2plot),
+    col=cols, lty=ltys, cex=0.75,
+    border ="blue", text.col = "green4",
+    merge = TRUE, bg = "gray90")
+    }
+}
+get_count_density(log2(edgeR::cpm(counts_averaged[,3:ncol(counts_averaged)])), title = "Count density of Replicate Averages for Each Group")
+get_count_density(log2(edgeR::cpm(raw_counts[,3:ncol(counts_averaged)])), title = "Count Density for all Samples", legend = FALSE)
+
+```
+  
+These look really quite normally distributed, and the distribution seems roughly symmetric across samples. Let's move onto normalizing the data.
+
+```{r, eval=FALSE}
+# Some code for my implementation of Z-score normalization (not used).
+v <- FALSE
+z_score_normalize <- function(x){
+  # Return Z score normalized integer list x (after calculating CPMs).
+  if(v){head(x)}
+  x <- as.double(x)
+  if(v){
+    head(x)
+    print(mean(x))
+    print(sd(x))
+    head((x - mean(x)) / sd(x))
+  }
+  return((x - mean(x)) / sd(x))
+}
+
+# Z score normalize our data.
+normalized_data <- data.frame(raw_counts[,1:2])
+# cpms <- log2(edgeR::cpm(raw_counts[,3:ncol(raw_counts)]))
+
+normalized_columns <- apply(log2(edgeR::cpm(raw_counts[3:ncol(raw_counts)])), MARGIN = 2, FUN = z_score_normalize)
+
+normalized_data <- cbind(normalized_data, log2(normalized_columns[,3:ncol(normalized_columns)]))
+
+get_count_density(normalized_data[,3:ncol(normalized_data)])
+```
+
+```{r}
+# Normalize using TMM method.
+filtered_data_matrix <- as.matrix(raw_counts[,3:ncol(raw_counts)])
+rownames(filtered_data_matrix) <- raw_counts[[1]]
+d <-  edgeR::DGEList(counts=filtered_data_matrix, group=samples$Group)
+normalized_counts <-  edgeR::calcNormFactors(d)
+
+# Visualize change in distribution of counts after normalizing.
+par(mfrow=c(1,2))
+get_count_density(log2(edgeR::cpm(normalized_counts)), legend=FALSE, title = 'Normalized Read Count Density')
+get_count_density(log2(edgeR::cpm(raw_counts[,3:ncol(raw_counts)])), legend=FALSE, title = 'Un-Normalized Read Count Density')
+
+normalized_counts <- cbind(raw_counts[1:2], normalized_counts)
+
+```
+It looks like our normalization has successfully reduced the variability between the samples!
+
+## Finding Gene Names for Normalized Data Using TAIR
+
+Given that this data was released over two years ago, it is likely that more loci have been assigned gene names. Connecting to the TAIR database will allow us to find and assign gene names as such [@berardini].
+
+```{r}
+
+# Download and Format Locus Identifier -> Gene Name map from tair.
+
+# map <- org.At.tair.db::org.At.tairENTREZID
+# map <- org.At.tair.db::org.At.tairARACYCENZYME
+# map <- org.At.tair.db::org.At.tairGENENAME
+map <- org.At.tair.db::org.At.tairSYMBOL
+
+mapped_tairs <- AnnotationDbi::mappedkeys(map)
+map <- as.list(map[mapped_tairs])
+chr_map <- lapply(map, paste, collapse=' ')
+
+# Create a dataframe to store names from GEO and TAIR sources.
+all_names <-  data.frame(normalized_counts[,1], normalized_counts[,2], as.character(chr_map[normalized_counts[,1]]))
+
+names(all_names) <- c('Locus Identifier', 'GEO Databse Gene Name', 'TAIR Gene name(s)')
+
+sel <- all_names[,3] == 'NULL'
+all_names[,3][sel] = NA
+
+kable(head(all_names), 'simple')
+
+# Which is getting more hits? How many GEO gene symbols are also TAIR gene symbols?
+tair_hit <- !as.logical(lapply(map[normalized_counts[,1]], is.null))
+db_hit <- !as.logical(lapply(normalized_counts[,2], is.na))
+
+# Number of matching gene symbols in TAIR.
+sum(tair_hit)
+# Number of matching gene symbols in the GEO dataset.
+sum(db_hit)
+# Gene symbols in both datasets.
+sum(tair_hit & db_hit)
+
+# All gene names found in geo but not in TAIR.
+missing_from_tair <- data.frame(normalized_counts[,1][db_hit & ! tair_hit], 
+                 normalized_counts[,2][db_hit & ! tair_hit])
+names(missing_from_tair) <- c('Locus Identifier', 'Name not present in TAIR')
+kable(head(missing_from_tair), 'simple')
+```
+It looks like there is a serious discrepancy between the naming system used in the GEO dataset and the TAIR database. A likely explanation for this is that the GEO dataset includes symbols that were assigned based on their homology to known proteins or other RNAs, which explains the names exclusively found in the GEO dataset.
+
+```{r}
+
+# Is every GEO name one of the TAIR names?
+matching <- as.logical(apply(all_names[, 1:3], MARGIN = 1,
+            FUN=function(x){
+              matches <- grepl(x[[2]], x[[3]], fixed=TRUE)
+              if(!matches | is.na(matches)){
+                return(FALSE)
+                }
+              return(TRUE)}))
+
+# All GEO names that aren't one of the TAIR names.
+not_matching <- data.frame(normalized_counts[,1][db_hit & tair_hit & !matching], 
+                 normalized_counts[,2][db_hit & tair_hit & !matching],
+                 all_names[,3][db_hit & tair_hit & !matching])
+                 
+names(not_matching) <- c('Locus Identifier', 'Name in GEO', 'Name(s) in TAIR')
+kable(head(not_matching), 'simple')
+
+
+```
+
+
+It looks like the majority of these are minor deviations, but again hint that the geo dataset may be using names from an alternate source. This could be in an older version of the TAIR standard symbols in combination with non-standard symbols assigned via homology. The names contained elusively in the TAIR library are likely newer assignments that weren't available at the time of publication. I was able to find several of the gene symbols unique to the GEO datasat in uniprot, but was unable to in TAIR.
+
+
+## Dataset Summary, Interpret & Document
+
+1. This data set investigates the Arabidopsis response to light stimulus across a variety of genotypes, including *pifq*, *hy5*, and *phyab* mutant lines. For each of these four genotypes, 3 biological replicates were conducted for each of the light and dark conditions. Seedlings were induced to germinate and then were either grown in the dark for 3 days, or grown in ambient white light for 3 days. After this, RNA was extracted from the entirety of each seedling and sequenced.  
+
+2. I find the experimental premise of this dataset to be really quite interesting. Being grown in light or dark conditions has a massive impact on the phenotype of the plant early in development, and thus one would imagine that there must be a fairly strong signal for differential mRNA regulation. Then, by probing mutants that show aberrancies in their light response we can begin to probe the mechanism underlying this differential regulation. Overall I think that this is a rich dataset that could contain further useful insights into the underlying biology of plant light responses.
+3. Anomalies in the data included genes for which there were undefined expression values, genes for which there were no counts, and multiple genes with the same name. The latter of which I would attribute (at least in part) to splicing isoforms .
+4. There are `r sum(! grep('AT', original_raw_counts[[1]]))` reads that weren't mapped to an Arabidopsis loci. This is likely due to processing done by the author. Arabidopsis gene naming is managed by TAIR. Each of the RNAs in the dataset is associated with one of these locus identifiers. Some of these RNAs are also associated with a gene symbol, though many are not. It also appears that this relationship is not 1 to 1, with as many as 5 locus identifiers mapping to the same gene name in our dataset. RNAs that did not map to an Arabidopsis loci were likely discarded by the author. There were discrepancies between the gene symbols stored in TAIR and the GEO series.
+5. See [Filtering out Missing Data](#Filtering-out-Missing-Data) and [Analysing Gene Counts](#Analysing-Gene-Counts).
+6. Replicates were generally treated independently, but for normalization purposes it was useful to view groups of replicates together.
+```{r}
+
+# Calculate gene counts.
+count_matrix <- as.matrix(raw_counts[,3:ncol(raw_counts)])
+total_counts <- apply(count_matrix, 2, sum)
+average_num_reads <- mean(total_counts)
+
+
+
+```
+7. If we were to naively calculate the coverage after our filtering steps, we have an average of `r average_num_reads` reads for each sample. Given that there are 36000 protein coding genes in the complete transcriptome of Arabidopsis, this is a fairly decent coverage given our filtering protocol and that only a subset of the possible tissues were sampled.
+
+### Quick Note
+I'm not entirely happy with my choice of dataset, and might switch it to another (likely GSE132861) for later projects, which should be easy that I've got a sense for the general filtering and normalization procedures [@burko]. I think that we would find some evidence for some genes that are globally DE in Arabidopsis in light and dark conditions, but I think that the fact that this dataset includes the entire plant will introduce variation that might obfuscate more interesting organ specific transcriptional responses.
+
+# References
