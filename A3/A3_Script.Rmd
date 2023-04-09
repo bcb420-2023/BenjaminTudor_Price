@@ -10,7 +10,7 @@ bibliography: refs.bib
 csl: https://raw.githubusercontent.com/citation-style-language/styles/master/research-institute-for-nature-and-forest.csl
 ---
 
-```{r, message=FALSE}
+```{r message=FALSE}
 if (!requireNamespace("BiocManager"))
     install.packages("BiocManager", quietly=TRUE)
 
@@ -67,7 +67,7 @@ knitr::include_graphics(file.path(getwd(), 'figs', "collapsed.png"))
 
 
 ## Setup for Dark Matter Analyses
-```{r, message=FALSE}
+```{r message=FALSE}
 library(org.At.tair.db)
 library(readr)
 library(GSA)
@@ -208,7 +208,7 @@ up_dmdf <- dmdf[order(dmdf$p_val),]
 gene_heatmap(dark_matter)
 ```
  
- Figure 5. A heatmap showing the relative expression levels of up regulated genes with an adjusted p value < `r `up_reg_p_val_th` not found to be significantly enriched (p_adj < `r go_p_val_thr`) amoung any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
+ Figure 5. A heatmap showing the relative expression levels of up regulated genes with an adjusted p value < `r up_reg_p_val_th` not found to be significantly enriched (p_adj < `r go_p_val_thr`) amoung any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
 
 ## Finding Dark Matter in Down Regulated Genes.
 ```{r}
