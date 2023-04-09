@@ -20,9 +20,6 @@ if (!requireNamespace("GSA"))
 if (!requireNamespace("biomaRt"))
     install.packages("biomaRt", quietly=TRUE)
 
-if (!requireNamespace("imager"))
-    install.packages("imager", quietly=TRUE)
-
 if (!requireNamespace("ComplexHeatmap"))
     BiocManager::install("ComplexHeatmap", quietly=TRUE)
 
@@ -37,7 +34,7 @@ if (!requireNamespace("org.At.tair.db"))
 
 2. Overall, the results were similar to previous analyses, but found far annotations were found with links to growth. In the light condition, annotations involved with high energy processes, such as peptide synthesis and mitosis. We also see significant enrichment for genes involved with photosynthesis and chloroplast development. In the dark condition, we see enrichment for annotations involved with induction of elongation (response to ethlene), response to low oxygen levels, and vacuolar transporation networks. All of these terms make perfect sense given our phenotype.
 
-3. These results are in agreement with the previous analyses, but were able to detect enrichment for DE of high energy metabolic procceses far more effectively. In general comparison of these results is fairly stright forward if we assume that the adjusted p-values provide comparable accuracy, however the inclusion of wikipathways in this iteration makes the anlysis slightly more complex.
+3. These results are in agreement with the previous analyses at a high level, but were able to detect enrichment for DE of high energy metabolic procceses far more effectively. In general, comparison of these results is fairly straight forward if we assume that the adjusted p-values provide comparable accuracy, but this is slightly complicated by the fact that there are many interrelated GO terms. So even if the GO matches found by each method are slightly different, they could well be saying the same thing.
 
 ## Cytoscape Visualisation of GSEA
 1.
@@ -46,6 +43,7 @@ knitr::include_graphics(file.path(getwd(), 'figs', "initial_ss.png"))
 ```
  
  Figure 1. A screenshot of the original unmodified network, with node significance threshold q < 0.1 and edge threshold q < 0.375. This graph contains 189 nodes and 658 nodes.
+ 
 2. See below.
 3.
 ```{r}
@@ -62,11 +60,10 @@ knitr::include_graphics(file.path(getwd(), 'figs', "collapsed.png"))
 
 ## Interpretation and detailed view of results
 
-1. Yes. These patterns of genes expression are exactly what we would expect from Arabidopsis exposed to light and dark conditions, and contain a micture of organ specific signals, as reported by the original authors [@tmm]. In light conditions, Arabidopsis invests its energy into the further development of its photosynthetic capacity. This can be seen in the far higher expression of chloroplast components, as reported above. The energy produced by this photosynthetic capacity allows for further cell division and free production of proteins. In the dark condition, Arabidopsis rapidly elongates, investing little in its photosynthetic capacity and relying on energy stored in its seed. A potential alaysis of the observed respose is as follows: hypoxic signalling is indicative of reduced energy consumption, ethylene signalling is indicative of increased elongation, vaculor transport is indicative of increased nutrient transit (from the seed to the rest of the plant), and increased protein turnover is a symptom of less energy being available to synthesize amino acids.
+1. Yes. These patterns of genes expression are exactly what we would expect from Arabidopsis exposed to light and dark conditions, and contain a micture of organ specific signals, as reported by the original authors [@pmm]. In light conditions, Arabidopsis invests its energy into the further development of its photosynthetic capacity. This can be seen in the far higher expression of chloroplast components, as reported above. The energy produced by this photosynthetic capacity allows for further cell division and free production of proteins. In the dark condition, Arabidopsis rapidly elongates, investing little in its photosynthetic capacity and relying on energy stored in its seed. A potential alaysis of the observed respose is as follows: hypoxic signalling is indicative of reduced energy consumption, ethylene signalling is indicative of increased elongation, vaculor transport is indicative of increased nutrient transit (from the seed to the rest of the plant), and increased protein turnover is a symptom of less energy being available to synthesize amino acids.
 
-2. Some of above insights are well documented in the literature [@ethylene; @gib; @lr; @pt]. Ribosome production and protein synthesis require significant energy input. When energy is abundant and the organism is rapidly growing, peptide and ribosome synthesis occurs at a high rate. 
+2. Some of above insights are well documented in the literature [@ethylene; @gib; @lr; @pt]. Ribosome production and protein synthesis require significant energy input. When energy is abundant and the organism is rapidly growing, peptide and ribosome synthesis occurs at a high rate. When energy is less abundant, protein turnover become relatively more active.
 
-https://onlinelibrary.wiley.com/doi/full/10.1111/j.1365-313X.2007.03346.x
 
 
 ## Setup for Dark Matter Analyses
@@ -183,7 +180,7 @@ ni_dmdf <- dmdf[order(dmdf$p_val),]
 gene_heatmap(not_incl)
 ```
  
- Figure 4. A heatmap showing the relative expression levels of genes with and adjusted p value < `reg_p_val_th`, but without any annotation among all annotations used for GSEA. Annotations include GO Biological Process, GO Molecular Funciton, and GO Cellular Component (excluding electronic annotaions).
+ Figure 4. A heatmap showing the relative expression levels of genes with and adjusted p value < `r reg_p_val_th`, but without any annotation among all annotations used for GSEA. Annotations include GO Biological Process, GO Molecular Funciton, and GO Cellular Component (excluding electronic annotaions).
 
 
 
@@ -211,7 +208,7 @@ up_dmdf <- dmdf[order(dmdf$p_val),]
 gene_heatmap(dark_matter)
 ```
  
- Figure 5. A heatmap showing the relative expression levels of up regulated genes with an adjusted p value < `up_reg_p_val_th` not found to be significantly enriched (p_adj < `go_p_val_thr`) amoung any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
+ Figure 5. A heatmap showing the relative expression levels of up regulated genes with an adjusted p value < `r `up_reg_p_val_th` not found to be significantly enriched (p_adj < `r go_p_val_thr`) amoung any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
 
 ## Finding Dark Matter in Down Regulated Genes.
 ```{r}
@@ -235,8 +232,8 @@ down_dmdf <- dmdf[order(dmdf$p_val),]
 gene_heatmap(dark_matter)
 ```
  
-Figure 6. A heatmap showing the relative expression levels of down regulated genes with an adjusted p value < `down_reg_p_val_th` not found to be significantly enriched (p_adj < `go_p_val_thr`) among any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
+Figure 6. A heatmap showing the relative expression levels of down regulated genes with an adjusted p value < `r down_reg_p_val_th` not found to be significantly enriched (p_adj < `r go_p_val_thr`) among any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
 
 
-
+## References
 
