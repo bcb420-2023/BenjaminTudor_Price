@@ -427,9 +427,9 @@ if(!file.exists(&#39;GEOmetadb.sqlite&#39;)) getSQLiteFile()</code></pre>
 <pre class="r"><code># Print basic info.
 file.info(&#39;GEOmetadb.sqlite&#39;)</code></pre>
 <pre><code>##                         size isdir mode               mtime               ctime
-## GEOmetadb.sqlite 13592906752 FALSE  644 2023-02-19 14:50:03 2023-02-22 22:05:22
+## GEOmetadb.sqlite 13592906752 FALSE  644 2023-02-19 14:50:03 2023-02-22 22:30:06
 ##                                atime uid gid uname grname
-## GEOmetadb.sqlite 2023-02-19 14:50:03 501  20   ben  staff</code></pre>
+## GEOmetadb.sqlite 2023-02-22 22:37:22 501  20   ben  staff</code></pre>
 <pre class="r"><code># Open a connection to the database folder.
 con &lt;- dbConnect(SQLite(),&#39;GEOmetadb.sqlite&#39;)
 
@@ -1055,10 +1055,11 @@ genes in the data set.</p>
 </div>
 <div id="normalization" class="section level2">
 <h2>Normalization</h2>
-<p>We’re going to try and normalize by distribution using the TMM
-method. Let’s first just try and visualize the distribution of the data
-in order to justify the assumptions necessary to employ this
-normalization technique. Namely,</p>
+<p>We’re going to try and normalize by distribution using the TMM method
+<span class="citation">(Robinson &amp; Oshlack, 2010)</span>. Let’s
+first just try and visualize the distribution of the data in order to
+justify the assumptions necessary to employ this normalization
+technique. Namely,</p>
 <p><strong>1.</strong> DE and non-DE genes behave the same: Technical
 effects are the same for DE and non-DE genes.<br />
 <strong>2.</strong> Balanced expression: There is roughly symmetric
@@ -1410,18 +1411,14 @@ together.</p></li>
 <pre class="r"><code># Calculate gene counts.
 count_matrix &lt;- as.matrix(raw_counts[,3:ncol(raw_counts)])
 total_counts &lt;- apply(count_matrix, 2, sum)
-average_num_reads &lt;- mean(total_counts)
-
-# Calculate average coverage.
-read_length &lt;- 2 * 125
-genome_size &lt;- 125 * 10 ^ 6
-average_coverage &lt;- (read_length * average_num_reads) / genome_size</code></pre>
+average_num_reads &lt;- mean(total_counts)</code></pre>
 <ol start="7" style="list-style-type: decimal">
 <li>If we were to naively calculate the coverage after our filtering
-steps, we have an average of 4.0038203^{7} reads for each sample, a read
-length of 125x2, and a genome size of 125000000bp, which gives an
-average coverage of 80.0764051x. Since not all of the genome is
-expressed, our coverage of the transcriptome is likely much higher.</li>
+steps, we have an average of 4.0038203^{7} reads for each sample. Given
+that there are 36000 protein coding genes in the complete transcriptome
+of Arabidopsis, this is a fairly decent coverage given our filtering
+protocol and that only a subset of the possible tissues were
+sampled.</li>
 </ol>
 <div id="quick-note" class="section level3">
 <h3>Quick Note</h3>
@@ -1458,6 +1455,11 @@ plant arabidopsis thaliana. nature 408 (6814): 796–815.
 <div id="ref-pmm" class="csl-entry">
 Martı́n G. &amp; Duque P. (2021). Tailoring photomorphogenic markers to
 organ growth dynamics. Plant Physiology 186 (1): 239–249.
+</div>
+<div id="ref-robinson2010scaling" class="csl-entry">
+Robinson M.D. &amp; Oshlack A. (2010). A scaling normalization method
+for differential expression analysis of RNA-seq data. Genome biology 11
+(3): 1–9.
 </div>
 </div>
 </div>

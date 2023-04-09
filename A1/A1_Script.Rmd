@@ -9,6 +9,7 @@ output:
 bibliography: refs.bib
 csl: https://raw.githubusercontent.com/citation-style-language/styles/master/research-institute-for-nature-and-forest.csl
 ---
+# A1
 
 ## Experimenting with GEOmetadb
 
@@ -133,7 +134,7 @@ sfiles = getGEOSuppFiles('GSE164122')
 
 # Parse into list.
 fnames = rownames(sfiles)
-raw_expression_data = read.delim(fnames[1],header=TRUE,
+raw_expression_data = read.delim("/Users/ben/Desktop/BCB420/RProjects/BCB420/A1/GSE164122/GSE164122_cRPKM_AND_COUNTS-Ath24.txt",header=TRUE,
  check.names = FALSE)
 
 # Extract columns with raw counts.
@@ -159,7 +160,7 @@ So, we have a dataset with `r length(raw_counts[,1])` mRNAs with their expressio
 ```{r}
 
 # Variables to help expand abbreviated column names.
-code_to_treatment <- c('3 Days Light', '3 Days Dark')
+code_to_treatment <- c('light', 'dark')
 names(code_to_treatment) <- c('X3dWL', 'X3dD')
 
 get_sample_info <- function(column_name){
@@ -170,7 +171,7 @@ get_sample_info <- function(column_name){
   light_condition <- code_to_treatment[[sample_info[1]]]
   genotype <- sample_info[[2]]
   replicate <- substr(sample_info[[3]], 1, 1)
-  group <- paste(c(sample_info[1], sample_info[[2]]), collapse = '_')
+  group <- paste(c(light_condition, sample_info[[2]]), collapse = '_')
   
   return(c(light_condition, genotype, replicate, group))
   }
@@ -180,6 +181,11 @@ samples <- data.frame(lapply(colnames(raw_counts)[3:ncol(raw_counts)], get_sampl
 colnames(samples) <- colnames(raw_counts)[3:ncol(raw_counts)]
 rownames(samples) <- c("Treatment", "Genotype","Replicate", "Group")
 samples <- data.frame(t(samples))
+new_names <- apply(samples, MARGIN=1, FUN=function(x){return(paste(x[1:3], collapse='_'))})
+
+rownames(samples) <- new_names
+
+names(raw_counts)[3:length(raw_counts)] <- new_names
 
 # Print plain english dataframe
 kable(samples, format = "simple")
@@ -373,7 +379,11 @@ par(mfrow=c(1,2))
 get_count_density(log2(edgeR::cpm(normalized_counts)), legend=FALSE, title = 'Normalized Read Count Density')
 get_count_density(log2(edgeR::cpm(raw_counts[,3:ncol(raw_counts)])), legend=FALSE, title = 'Un-Normalized Read Count Density')
 
-normalized_counts <- cbind(raw_counts[1:2], normalized_counts)
+normalized_cpms <- edgeR::cpm(normalized_counts)
+normalized_cpms <- cbind(raw_counts[1:2], normalized_cpms)
+write.csv(samples, "/Users/ben/Desktop/BCB420/RProjects/BCB420/samples.csv", row.names=FALSE)
+
+normalized_counts <- normalized_cpms
 
 ```
 It looks like our normalization has successfully reduced the variability between the samples!
@@ -405,6 +415,15 @@ all_names[,3][sel] = NA
 
 kable(head(all_names), 'simple')
 
+all_names$`Merge Names` <- normalized_counts[,2]
+
+all_names$`Merge Names`[! is.na(all_names[, 3])] <-  
+  unlist(lapply(all_names[, 3][! is.na(all_names[, 3])], 
+         function(x){return(unlist(strsplit(x, split=' '))[[1]])}))
+
+# Update normalized counts with new names.
+normalized_counts$NAME <- all_names$`Merge Names`
+
 # Which is getting more hits? How many GEO gene symbols are also TAIR gene symbols?
 tair_hit <- !as.logical(lapply(map[normalized_counts[,1]], is.null))
 db_hit <- !as.logical(lapply(normalized_counts[,2], is.na))
@@ -421,6 +440,19 @@ missing_from_tair <- data.frame(normalized_counts[,1][db_hit & ! tair_hit],
                  normalized_counts[,2][db_hit & ! tair_hit])
 names(missing_from_tair) <- c('Locus Identifier', 'Name not present in TAIR')
 kable(head(missing_from_tair), 'simple')
+
+
+genes <- read.csv(file.path(getwd(),"genes.csv"), sep='\t', quote = "")
+genes$Gene.Model.Type <- lapply(genes$Gene.Model.Type, function(x){gsub("[\\s ( )]", "", x)})
+gene_names <- genes$Gene.Model.Type
+names(gene_names) <- row.names(genes)
+
+
+
+for(i in seq_along(normalized_counts$NAME)){
+  normalized_counts$NAME[i] <- gene_names[normalized_counts$ID[i]]
+}
+
 ```
 It looks like there is a serious discrepancy between the naming system used in the GEO dataset and the TAIR database. A likely explanation for this is that the GEO dataset includes symbols that were assigned based on their homology to known proteins or other RNAs, which explains the names exclusively found in the GEO dataset.
 
@@ -443,6 +475,9 @@ not_matching <- data.frame(normalized_counts[,1][db_hit & tair_hit & !matching],
 names(not_matching) <- c('Locus Identifier', 'Name in GEO', 'Name(s) in TAIR')
 kable(head(not_matching), 'simple')
 
+# Update names.
+
+write.csv(normalized_counts, "/Users/ben/Desktop/BCB420/RProjects/BCB420/normalized_cpms.csv", row.names=FALSE)
 
 ```
 
@@ -466,12 +501,16 @@ count_matrix <- as.matrix(raw_counts[,3:ncol(raw_counts)])
 total_counts <- apply(count_matrix, 2, sum)
 average_num_reads <- mean(total_counts)
 
-
-
 ```
 7. If we were to naively calculate the coverage after our filtering steps, we have an average of `r average_num_reads` reads for each sample. Given that there are 36000 protein coding genes in the complete transcriptome of Arabidopsis, this is a fairly decent coverage given our filtering protocol and that only a subset of the possible tissues were sampled.
 
 ### Quick Note
 I'm not entirely happy with my choice of dataset, and might switch it to another (likely GSE132861) for later projects, which should be easy that I've got a sense for the general filtering and normalization procedures [@burko]. I think that we would find some evidence for some genes that are globally DE in Arabidopsis in light and dark conditions, but I think that the fact that this dataset includes the entire plant will introduce variation that might obfuscate more interesting organ specific transcriptional responses.
+
+# A2
+
+So after assignment 1, we now have our normalised dataset (normalised_counts). Which is still formatted as raw reads. We also have the replicate groups (samples). Now, let's calculate the differential between the genes in our dataset.
+
+
 
 # References
