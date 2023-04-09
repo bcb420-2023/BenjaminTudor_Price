@@ -1,0 +1,242 @@
+---
+title: "Assignment 3"
+author: "Benjamin Tudor Price | TUDORPR1"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+bibliography: refs.bib
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/research-institute-for-nature-and-forest.csl
+---
+
+```{r, message=FALSE}
+if (!requireNamespace("BiocManager"))
+    install.packages("BiocManager", quietly=TRUE)
+
+if (!requireNamespace("GSA"))
+    install.packages("GSA", quietly=TRUE)
+
+if (!requireNamespace("biomaRt"))
+    install.packages("biomaRt", quietly=TRUE)
+
+if (!requireNamespace("imager"))
+    install.packages("imager", quietly=TRUE)
+
+if (!requireNamespace("ComplexHeatmap"))
+    BiocManager::install("ComplexHeatmap", quietly=TRUE)
+
+if (!requireNamespace("org.At.tair.db"))
+  BiocManager::install("org.At.tair.db", quietly=TRUE)
+
+```
+
+## Non-thresholded Gene set enrichment analysis
+
+1. I used GSEA V-4.3.2 to test my ranked genes for enrichment to the GO Biological Process, GO Molecular Function and GO Cellular Component databases (BioMart releases/2022-12-04) [@mart; @go; @gsea].
+
+2. Overall, the results were similar to previous analyses, but found far annotations were found with links to growth. In the light condition, annotations involved with high energy processes, such as peptide synthesis and mitosis. We also see significant enrichment for genes involved with photosynthesis and chloroplast development. In the dark condition, we see enrichment for annotations involved with induction of elongation (response to ethlene), response to low oxygen levels, and vacuolar transporation networks. All of these terms make perfect sense given our phenotype.
+
+3. These results are in agreement with the previous analyses, but were able to detect enrichment for DE of high energy metabolic procceses far more effectively. In general comparison of these results is fairly stright forward if we assume that the adjusted p-values provide comparable accuracy, however the inclusion of wikipathways in this iteration makes the anlysis slightly more complex.
+
+## Cytoscape Visualisation of GSEA
+1.
+```{r}
+knitr::include_graphics(file.path(getwd(), 'figs', "initial_ss.png"))
+```
+ 
+ Figure 1. A screenshot of the original unmodified network, with node significance threshold q < 0.1 and edge threshold q < 0.375. This graph contains 189 nodes and 658 nodes.
+2. See below.
+3.
+```{r}
+knitr::include_graphics(file.path(getwd(), 'figs', "go_all.png"))
+```
+ 
+ Figure 2. A graph representation of the go terms  significantly (q > 0.09) enriched among light or dark conditions. Edges given by significant (q < 0.5308) overlap between any two go terms. Gene categorized by common features.
+4.
+```{r}
+knitr::include_graphics(file.path(getwd(), 'figs', "collapsed.png"))
+```
+ 
+ Figure 3. A collapsed graph representation of the go terms  significantly (q > 0.09) enriched among light or dark conditions. Edges given by significant (q < 0.5308) overlap between any two go terms. Gene categorized by common features. Collapsing performed by AutoAnnotate [@autoan].
+
+## Interpretation and detailed view of results
+
+1. Yes. These patterns of genes expression are exactly what we would expect from Arabidopsis exposed to light and dark conditions, and contain a micture of organ specific signals, as reported by the original authors [@tmm]. In light conditions, Arabidopsis invests its energy into the further development of its photosynthetic capacity. This can be seen in the far higher expression of chloroplast components, as reported above. The energy produced by this photosynthetic capacity allows for further cell division and free production of proteins. In the dark condition, Arabidopsis rapidly elongates, investing little in its photosynthetic capacity and relying on energy stored in its seed. A potential alaysis of the observed respose is as follows: hypoxic signalling is indicative of reduced energy consumption, ethylene signalling is indicative of increased elongation, vaculor transport is indicative of increased nutrient transit (from the seed to the rest of the plant), and increased protein turnover is a symptom of less energy being available to synthesize amino acids.
+
+2. Some of above insights are well documented in the literature [@ethylene; @gib; @lr; @pt]. Ribosome production and protein synthesis require significant energy input. When energy is abundant and the organism is rapidly growing, peptide and ribosome synthesis occurs at a high rate. 
+
+https://onlinelibrary.wiley.com/doi/full/10.1111/j.1365-313X.2007.03346.x
+
+
+## Setup for Dark Matter Analyses
+```{r, message=FALSE}
+library(org.At.tair.db)
+library(readr)
+library(GSA)
+
+map <- org.At.tair.db::org.At.tairSYMBOL
+mapped_tairs <- AnnotationDbi::mappedkeys(map)
+map <- as.list(map[mapped_tairs])
+chr_map <- lapply(map, paste, collapse=' ')
+
+
+# Parse ranks file.
+locus_ranks_path <- file.path(getwd(), 'data', "locus_rank_list.rnk")
+ranks <- read.csv(locus_ranks_path, sep='\t', header=FALSE)
+names(ranks) <- c("Locus", "Rank")
+
+# Parse GMT file
+gmt_path <- file.path(getwd(), 'data',  "ENSEMBL_GOALL.gmt")
+capture.output(genesets<- GSA.read.gmt(gmt_path),file="data/gsa_load.out")
+names(genesets$genesets) <- genesets$geneset.names
+
+# Parse raw DE data.
+output_hits <- read.csv(file.path(getwd(), 'data', "output_hits.csv"))
+sel <- is.na(output_hits$NAME)
+output_hits$NAME[sel] <- output_hits$ID[sel]
+
+# Find included genes.
+iter <- 0
+every <- 100
+unique_genes <- character()
+
+unique_genes <- unique(unlist(genesets$genesets))
+
+all_names <- function(locus_id){
+  if (locus_id %in% names(chr_map)){
+    return(c(locus_id, unlist(strsplit(chr_map[[locus_id]], split=' +'))))
+  } else {
+    return(locus_id)
+  }
+}
+
+any_names_in <- function(locus_ids, gene_collection){
+  rtrn <- logical(length(locus_ids))
+  for (i in seq_along(locus_ids)){
+    locus_id <- locus_ids[i]
+    ids <- all_names(locus_id)
+    
+    if (any(ids %in% gene_collection)){
+      rtrn[i] <- TRUE
+    }
+  }
+  return(rtrn)
+}
+
+# Parse Counts Data
+norm_cpms <- read.table(file=file.path(getwd(), 'data', "normalized_cpms.csv"),
+                        header = TRUE,sep = ",",
+                        stringsAsFactors = FALSE,
+                        check.names=FALSE)
+norm_cpms <- cbind(norm_cpms[, 1:2], norm_cpms[grep('WT', names(norm_cpms))])
+
+gene_heatmap <- function(loci_ids){
+  mi_inds <- match(loci_ids, norm_cpms$ID)
+  # gene_names <- output_hits$NAME[match(loci_ids, output_hits$ID)]
+
+  # Convert our normalized cpms into matrix visulisable on heatmap.
+  heatmap_matrix <- norm_cpms[mi_inds,3:ncol(norm_cpms)]
+  colnames(heatmap_matrix) <- colnames(norm_cpms[mi_inds,3:ncol(norm_cpms)])
+  rownames(heatmap_matrix) <- loci_ids
+  
+  # Scale heatmap with row normalisation
+  heatmap_matrix <- t(scale(t(heatmap_matrix)))
+  nans <- which(is.nan(heatmap_matrix[,1]))
+  heatmap_matrix[nans, ] <- 0
+  
+  # Select colour scheme - add additional colour if negative values present.
+  if(min(heatmap_matrix) == 0){
+    heatmap_col = circlize::colorRamp2(c( 0, max(heatmap_matrix)), 
+                             c( "white", "red"))
+  } else {
+    heatmap_col = circlize::colorRamp2(c(min(heatmap_matrix), 0, 
+          max(heatmap_matrix)), c("blue", "white", "red"))
+  }
+
+
+  current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix),
+        show_row_dend = FALSE, show_column_dend = TRUE, 
+        col=heatmap_col,show_column_names = TRUE, 
+        show_heatmap_legend = TRUE, use_raster=TRUE,
+        heatmap_legend_param = list(title = 'Relative CPM'))
+  
+  return(current_heatmap)
+}
+```
+
+## Finding Genes Not Included in Any GO Terms
+```{r}
+reg_p_val_th <- 0.000005
+
+output_hits$included <- any_names_in(output_hits$ID, unique_genes) 
+output_hits$rank <- -log(output_hits$adj.P.Val, base = 10) * sign(output_hits$logFC)
+
+
+not_incl <- output_hits$ID[! output_hits$included & output_hits$adj.P.Val < reg_p_val_th]
+length(not_incl)
+
+dmdf <- data.frame(id=not_incl,
+                   symbol=output_hits$NAME[match(not_incl, output_hits$ID)],
+                   p_val=output_hits$adj.P.Val[match(not_incl, output_hits$ID)])
+ni_dmdf <- dmdf[order(dmdf$p_val),]
+gene_heatmap(not_incl)
+```
+ 
+ Figure 4. A heatmap showing the relative expression levels of genes with and adjusted p value < `reg_p_val_th`, but without any annotation among all annotations used for GSEA. Annotations include GO Biological Process, GO Molecular Funciton, and GO Cellular Component (excluding electronic annotaions).
+
+
+
+## Finding Dark Matter in Up Regulated Genes.
+```{r}
+go_p_val_thr <- 0.05
+up_reg_p_val_th <- 0.000002
+
+nt <- function(x){return(- log(x, base=10))}
+
+# Get up regulated genes inlcuded in go terms.
+up_reg <- read.csv(file.path(getwd(), 'data', "gsea_up_reg.tsv"), sep='\t')
+up_reg_go_terms <- up_reg$GS.br..follow.link.to.MSigDB[up_reg$NOM.p.val < go_p_val_thr]
+accounted_for <- genesets$genesets[up_reg_go_terms]
+accounted_for <- unique(unlist(accounted_for))
+
+# Get up regulated gene not included in go terms.
+up_reg <- ranks$Locus[ranks$Rank > nt(up_reg_p_val_th)]
+dark_matter <- up_reg[! any_names_in(up_reg, accounted_for)]
+
+dmdf <- data.frame(id=dark_matter,
+                   symbol=output_hits$NAME[match(dark_matter, output_hits$ID)],
+                   p_val=output_hits$adj.P.Val[match(dark_matter, output_hits$ID)])
+up_dmdf <- dmdf[order(dmdf$p_val),]
+gene_heatmap(dark_matter)
+```
+ 
+ Figure 5. A heatmap showing the relative expression levels of up regulated genes with an adjusted p value < `up_reg_p_val_th` not found to be significantly enriched (p_adj < `go_p_val_thr`) amoung any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
+
+## Finding Dark Matter in Down Regulated Genes.
+```{r}
+go_p_val_thr <- 0.05
+down_reg_p_val_th <- 0.000002
+
+# Get down regulated genes inlcuded in go terms.
+down_reg <- read.csv(file.path(getwd(), 'data', "gsea_down_reg.tsv"), sep='\t')
+down_reg_go_terms <- down_reg$GS.br..follow.link.to.MSigDB[down_reg$NOM.p.val < go_p_val_thr]
+accounted_for <- genesets$genesets[down_reg_go_terms]
+accounted_for <- unique(unlist(accounted_for))
+
+# Get down regulated gene not included in go terms.
+down_reg <- ranks$Locus[ranks$Rank < - nt(down_reg_p_val_th)]
+dark_matter <- down_reg[! any_names_in(down_reg, accounted_for)]
+
+dmdf <- data.frame(id=dark_matter,
+                   symbol=output_hits$NAME[match(dark_matter, output_hits$ID)],
+                   p_val=output_hits$adj.P.Val[match(dark_matter, output_hits$ID)])
+down_dmdf <- dmdf[order(dmdf$p_val),]
+gene_heatmap(dark_matter)
+```
+ 
+Figure 6. A heatmap showing the relative expression levels of down regulated genes with an adjusted p value < `down_reg_p_val_th` not found to be significantly enriched (p_adj < `go_p_val_thr`) among any of the given annotations. Annotations include GO Biological Process, GO Molecular Function, and GO Cellular Component (excluding electronic annotations).
+
+
+
+
