@@ -42,7 +42,7 @@ if (!requireNamespace("org.At.tair.db"))
 knitr::include_graphics(file.path(getwd(), 'figs', "initial_ss.png"))
 ```
  
- Figure 1. A screenshot of the original unmodified network, with node significance threshold q < 0.1 and edge threshold q < 0.375. This graph contains 189 nodes and 658 nodes.
+ Figure 1. A screenshot of the original unmodified network, with node significance threshold q < 0.1 and edge threshold q < 0.375. This graph contains 189 nodes and 658 edges.
  
 2. See below.
 3.

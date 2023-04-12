@@ -87,7 +87,7 @@ current_heatmap <- ComplexHeatmap::Heatmap(as.matrix(heatmap_matrix),
       col=heatmap_col,show_column_names = TRUE, 
       show_row_names = FALSE,show_heatmap_legend = TRUE, use_raster=TRUE)
 
-current_heatmap
+# current_heatmap
 
 ```
 
