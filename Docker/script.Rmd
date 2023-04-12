@@ -1,0 +1,16 @@
+```{r}
+num_cols <- 10
+num_rows <- 5
+mat <- matrix(runif(num_cols * num_rows, 0, 100), nrow=num_rows, ncol=num_cols)
+colnames(mat) <- c("cond1", "cond2", "cond3", "cond4", "cond5", 
+                "ctrl1", "ctrl2", "ctrl3", "ctrl4", "ctrl5")
+rownames(mat) <- c("gene1", "gene2", "gene3", "gene4", "gene5")
+
+avg_cond <- apply(mat, MARGIN=1, FUN=function(x){sum(x[1:5])})
+avg_cont <- apply(mat, MARGIN=1, FUN=function(x){sum(x[6:10])})
+
+fc <- avg_cont / avg_cond
+
+fc
+
+```
